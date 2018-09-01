@@ -100,8 +100,8 @@ for name in to_write:
 			#TODO: set 'col' based on object's active vertex colors array.
 			# you should be able to use code much like the texcoord code below.
 			#col = mathutils.Color((1.0, 1.0, 1.0))
-			if mesh.vertex_color:
-				col = mathutils.Color((mesh.vertex_color.active.data[loop.vertex_index].color))
+			if mesh.vertex_colors:
+				col = mathutils.Color((mesh.vertex_colors.active.data[loop.vertex_index].color))
 			else:
 				col = mathutils.Color((1.0, 1.0, 1.0))
 			data += struct.pack('BBBB', int(col.r * 255), int(col.g * 255), int(col.b * 255), 255)
