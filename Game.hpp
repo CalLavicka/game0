@@ -93,6 +93,8 @@ struct Game {
 		float radius = 0.5f;
 	};
 
+	Target create_target();
+
 	Player player;
 	std::vector< Enemy > enemies;
 	std::vector< Target > targets;

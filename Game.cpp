@@ -5,6 +5,7 @@
 #include "data_path.hpp" //helper to get paths relative to executable
 
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/random.hpp>
 
 #include <iostream>
 #include <fstream>
@@ -21,6 +22,18 @@ float mag(glm::vec2 vec) {
 
 void normalize(glm::vec2 &vec) {
 	vec /= mag(vec);
+}
+
+Game::Target Game::create_target() {
+	Target target = Target();
+	target.mesh = target_mesh;
+	target.points = 10;
+	target.position.y = glm::linearRand(1.0f, 9.0f);
+	target.position.x = glm::linearRand(-4.5f, 4.5f);
+
+	//std::cout << "Position" << target.position.x << target.position.y << std::endl;
+
+	return target;
 }
 
 //helper defined later; throws if shader compilation fails:
@@ -220,7 +233,7 @@ Game::Game() {
 	player = Player();
 	player.mesh = player_mesh;
 	player.position = glm::vec2(0.0f, 0.0f);
-	player.velocity = glm::vec2(5.0f, 5.0f);
+	player.velocity = glm::vec2(0.0f, 0.0f);
 
 	enemies.clear();
 	Enemy enemy = Enemy();
@@ -228,6 +241,13 @@ Game::Game() {
 	enemy.position = glm::vec2(3.0f, 3.0f);
 	enemy.speed = 1.0f;
 	enemies.push_back(enemy);
+
+	targets.clear();
+	for (int i=0; i<6; i++) {
+		Target target = create_target();
+		target.mesh = target_mesh;
+		targets.push_back(target);
+	}
 }
 
 Game::~Game() {
@@ -295,7 +315,7 @@ void Game::update(float elapsed) {
 		break;
 	case charging:
 		// Add to power
-		power = glm::min(power + 7.0f * elapsed, 10.0f);
+		power = glm::min(power + 10.0f * elapsed, 10.0f);
 		break;
 	case flying:
 		// Update player
@@ -307,6 +327,20 @@ void Game::update(float elapsed) {
 			angle = 90;
 			power = 0;
 			player.velocity = glm::vec2(0.0f, 0.0f);
+
+			while (targets.size() < 6) {
+				Target target = create_target();
+				target.mesh = target_mesh;
+				targets.push_back(target);
+			}
+
+			if (score > enemies.size() * 100) {
+				Enemy enemy = Enemy();
+				enemy.mesh = enemy_mesh;
+				enemy.position = enemies[0].position;
+				enemy.speed = 1.0f + enemies.size() * 0.1f;
+				enemies.push_back(enemy);
+			}
 		}
 		if (player.position.x >= 5.0f) {
 			player.velocity.x = -glm::abs(player.velocity.x);
@@ -325,8 +359,9 @@ void Game::update(float elapsed) {
 		// Check for a collision
 		if (collision(target.position, player.position, target.radius + player.radius)) {
 			// COLLISION
+			std::cout << "COLLISION" << std::endl;
 			score += target.points;
-			targets.erase(i);
+			targets.erase(targets.begin() + i);
 			i--;
 		}
 	}
@@ -424,18 +459,26 @@ void Game::draw(glm::uvec2 drawable_size) {
 
 	draw_mesh(player.mesh, trans_mat(player.position.x, player.position.y, -0.5f));
 
+	// Draw enemies
 	for (Enemy enemy : enemies) {
 		draw_mesh(enemy.mesh, trans_mat(enemy.position.x, enemy.position.y, -0.5f));
+	}
+
+	// Draw targets
+	for (Target target : targets) {
+
+		//std::cout << "Drawing" << target.position.x << target.position.y << std::endl;
+		draw_mesh(target.mesh, trans_mat(target.position.x, target.position.y, -0.7f));
 	}
 
 	glm::mat4 aimmat = rot_mat(180.0f - angle);
 
 	if (game_state == aiming) {
-		draw_mesh(enemy_mesh, trans_mat(player.position.x, player.position.y, -1.0f) * aimmat * scale_mat(0.5f, 10.0f) * trans_mat(0.0f, -0.25f, 0.0f));
+		draw_mesh(enemy_mesh, trans_mat(player.position.x, player.position.y, -0.6f) * aimmat * scale_mat(0.5f, 10.0f) * trans_mat(0.0f, -0.25f, 0.0f));
 	}
 
 	if (game_state == charging) {
-		draw_mesh(enemy_mesh, trans_mat(player.position.x, player.position.y, -1.0f) * aimmat * scale_mat(0.5f, power / 2.0f) * trans_mat(0.0f, -0.25f, 0.0f));
+		draw_mesh(enemy_mesh, trans_mat(player.position.x, player.position.y, -0.6f) * aimmat * scale_mat(0.5f, power / 2.0f) * trans_mat(0.0f, -0.25f, 0.0f));
 	}
 
 	glUseProgram(0);
