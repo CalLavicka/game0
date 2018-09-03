@@ -15,6 +15,8 @@
 
 #define PI 3.141592f
 
+#define NUM_TARGETS 10
+
 // Some helpful functions for vectors
 float mag(glm::vec2 vec) {
 	return glm::sqrt(vec.x * vec.x + vec.y * vec.y);
@@ -24,10 +26,11 @@ void normalize(glm::vec2 &vec) {
 	vec /= mag(vec);
 }
 
-Game::Target Game::create_target() {
+Game::Target Game::create_target(bool golden) {
 	Target target = Target();
-	target.mesh = target_mesh;
+	target.mesh = golden ? golden_egg_mesh : target_mesh;
 	target.points = 10;
+	target.golden = golden;
 	target.position.y = glm::linearRand(1.0f, 9.0f);
 	target.position.x = glm::linearRand(-4.5f, 4.5f);
 
@@ -200,8 +203,10 @@ Game::Game() {
 		//tile_mesh = lookup("Tile");
 		//cursor_mesh = lookup("Cursor");
 		player_mesh = lookup("Doll");
-		target_mesh = lookup("Egg");
+		target_mesh = lookup("Egg.001");
 		enemy_mesh = lookup("Cube");
+		cursor_mesh = lookup("Aim");
+		golden_egg_mesh = lookup("Egg");
 	}
 
 	{ //create vertex array object to hold the map from the mesh vertex buffer to shader program attributes:
@@ -236,6 +241,7 @@ Game::Game() {
 void Game::reset_game() {
 
 	score = 0;
+	golden_score = 250;
 	game_state = aiming;
 	angle = 90.0f;
 	power = 0.0f;
@@ -253,9 +259,8 @@ void Game::reset_game() {
 	enemies.push_back(enemy);
 
 	targets.clear();
-	for (int i=0; i<6; i++) {
-		Target target = create_target();
-		target.mesh = target_mesh;
+	for (int i=0; i<NUM_TARGETS; i++) {
+		Target target = create_target(false);
 		targets.push_back(target);
 	}
 }
@@ -314,7 +319,7 @@ void Game::update(float elapsed) {
 	switch(game_state) {
 	case charging:
 		// Add to power
-		power = glm::min(power + 10.0f * elapsed, 10.0f);
+		power = glm::min(power + 10.0f * elapsed, 12.0f);
 	case aiming:
 		// Update aiming
 		if (controls.angle_left) {
@@ -327,25 +332,35 @@ void Game::update(float elapsed) {
 	case flying:
 		// Update player
 		player.position += player.velocity * elapsed;
-		player.velocity.y -= elapsed * 4.5f;
+		player.velocity.y -= elapsed * 6.0f;
 		if (player.position.y <= 0) {
 			player.position.y = 0;
 			game_state = aiming;
 			angle = 90;
 			power = 0;
 			player.velocity = glm::vec2(0.0f, 0.0f);
+			golden_jumps = glm::max(golden_jumps - 1, 0);
 
-			while (targets.size() < 6) {
-				Target target = create_target();
-				target.mesh = target_mesh;
+			while (targets.size() < NUM_TARGETS) {
+				Target target;
+				if (score > golden_score) {
+					target = create_target(true);
+					golden_score += 290;
+				} else {
+					target = create_target(false);
+				}
 				targets.push_back(target);
 			}
 
 			if (score > enemies.size() * 100) {
 				Enemy enemy = Enemy();
 				enemy.mesh = enemy_mesh;
-				enemy.position = enemies[enemies.size() - 1].position;
-				enemy.speed = 1.0f + enemies.size() * 0.1f;
+				if (enemies.size() > 0) {
+					enemy.position = enemies[enemies.size() - 1].position;
+				} else {
+					enemy.position = glm::vec2(-5.0f, 10.0f);
+				}
+				enemy.speed = 1.0f + score * 0.0005f;
 				enemies.push_back(enemy);
 			}
 		}
@@ -366,17 +381,25 @@ void Game::update(float elapsed) {
 		// Check for a collision
 		if (collision(target.position, player.position, target.radius + player.radius)) {
 			// COLLISION
-			std::cout << "COLLISION" << std::endl;
 			score += target.points;
 			targets.erase(targets.begin() + i);
 			i--;
+
+			if (target.golden) {
+				golden_jumps += 4;
+			}
 		}
 	}
 
 	// Update enemies
-	for (Enemy &enemy : enemies) {
+	for (size_t i = 0; i < enemies.size(); i++) {
 		glm::vec2 dir;
 		float angle;
+
+		Enemy &enemy = enemies[i];
+		if (golden_jumps > 0) {
+			enemy.state = flee;
+		}
 		switch(enemy.state) {
 		case chase:
 			dir = player.position - enemy.position;
@@ -404,7 +427,7 @@ void Game::update(float elapsed) {
 			dir = glm::vec2(glm::cos(angle) * enemy.speed * elapsed, glm::sin(angle) * enemy.speed * elapsed);
 			enemy.position += dir;
 
-			enemy.direction += glm::linearRand(-8.0f, 8.0f) * elapsed;
+			enemy.direction += glm::linearRand(-40.0f, 40.0f) * elapsed;
 			break;
 		case circle:
 			angle = enemy.direction * PI / 180.0f;
@@ -427,15 +450,21 @@ void Game::update(float elapsed) {
 		enemy.position.y = glm::min(glm::max(enemy.position.y, 0.0f), 10.0f);
 
 		// Check for a collision
-		if (collision(enemy.position, player.position, enemy.radius + player.radius)) {
-			reset_game();
-			return;
+		if (collision(enemy.position, player.position, enemy.radius + player.radius + (golden_jumps > 0) ? 0.5f : 0.0f)) {
+			if (golden_jumps > 0) {
+				enemies.erase(enemies.begin() + i);
+				i--;
+				continue;
+			} else {
+				reset_game();
+				return;
+			}
 		}
 
 		// Change AI (only when player is grounded)
 		enemy.state_time += elapsed;
-		if (enemy.state_time > enemy.target_time && game_state == aiming) {
-			int state_roll = glm::linearRand(0, 10);
+		if (enemy.state_time > enemy.target_time && game_state == aiming && golden_jumps == 0) {
+			int state_roll = glm::linearRand(0, 9);
 			if (state_roll <= 2) {
 				enemy.state = chase;
 			} else if (state_roll == 3) {
@@ -494,6 +523,34 @@ glm::mat4 trans_mat(float const transx, float const transy, float const transz) 
 		transx, transy, transz, 1.0f
 	);
 }
+
+glm::mat4 face1 = glm::mat4(
+	1.0f, 0.0f, 0.0f, 0.0f,
+	0.0f, glm::cos(PI / 2.0f), -glm::sin(PI / 2.0f), 0.0f,
+	0.0f, glm::sin(PI / 2.0f), glm::cos(PI / 2.0f), 0.0f,
+	0.0f, 0.0f, 0.0f, 1.0f
+);
+
+glm::mat4 face2 = glm::mat4(
+	1.0f, 0.0f, 0.0f, 0.0f,
+	0.0f, glm::cos(-PI / 2.0f), -glm::sin(-PI / 2.0f), 0.0f,
+	0.0f, glm::sin(-PI / 2.0f), glm::cos(-PI / 2.0f), 0.0f,
+	0.0f, 0.0f, 0.0f, 1.0f
+);
+
+glm::mat4 face3 = glm::mat4(
+	glm::cos(-PI / 2.0f), 0.0f, glm::sin(-PI / 2.0f), 0.0f,
+	0.0f, 1.0f, 0.0f, 0.0f,
+	-glm::sin(-PI / 2.0f), 0.0f, glm::cos(-PI / 2.0f), 0.0f,
+	0.0f, 0.0f, 0.0f, 1.0f
+);
+
+glm::mat4 face4 = glm::mat4(
+	glm::cos(PI / 2.0f), 0.0f, glm::sin(PI / 2.0f), 0.0f,
+	0.0f, 1.0f, 0.0f, 0.0f,
+	-glm::sin(PI / 2.0f), 0.0f, glm::cos(PI / 2.0f), 0.0f,
+	0.0f, 0.0f, 0.0f, 1.0f
+);
 
 void Game::draw(glm::uvec2 drawable_size) {
 	//Set up a transformation matrix to fit the board in the window:
@@ -557,7 +614,26 @@ void Game::draw(glm::uvec2 drawable_size) {
 
 	// Draw enemies
 	for (Enemy enemy : enemies) {
-		draw_mesh(enemy.mesh, trans_mat(enemy.position.x, enemy.position.y, -0.5f));
+		auto mat = trans_mat(enemy.position.x, enemy.position.y, -0.5f);
+		if (golden_jumps > 0) {
+			mat = mat * face2;
+		} else {
+			switch(enemy.state) {
+				case chase:
+				case hunt:
+					mat = mat * face1;
+					break;
+				case patrol:
+				case circle:
+					mat = mat * face4;
+					break;
+				case wander:
+				case flee:
+					mat = mat * face3;
+					break;
+			}
+		}
+		draw_mesh(enemy.mesh, mat);
 	}
 
 	// Draw targets
@@ -570,11 +646,11 @@ void Game::draw(glm::uvec2 drawable_size) {
 	glm::mat4 aimmat = rot_mat(180.0f - angle);
 
 	if (game_state == aiming) {
-		draw_mesh(enemy_mesh, trans_mat(player.position.x, player.position.y, -0.6f) * aimmat * scale_mat(0.5f, 10.0f) * trans_mat(0.0f, -0.25f, 0.0f));
+		draw_mesh(cursor_mesh, trans_mat(player.position.x, player.position.y, -1.5f) * aimmat * scale_mat(0.1f, 2.3f) * trans_mat(0.0f, -1.0f, 0.0f));
 	}
 
 	if (game_state == charging) {
-		draw_mesh(enemy_mesh, trans_mat(player.position.x, player.position.y, -0.6f) * aimmat * scale_mat(0.5f, power / 2.0f) * trans_mat(0.0f, -0.25f, 0.0f));
+		draw_mesh(cursor_mesh, trans_mat(player.position.x, player.position.y, -1.5f) * aimmat * scale_mat(0.1f, power / 6.0f) * trans_mat(0.0f, -1.0f, 0.0f) * face1);
 	}
 
 	// TODO: Draw playable surface

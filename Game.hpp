@@ -61,6 +61,8 @@ struct Game {
 	Mesh enemy_mesh;
 	Mesh player_mesh;
 	Mesh target_mesh;
+	Mesh golden_egg_mesh;
+	Mesh cursor_mesh;
 
 	GLuint meshes_for_simple_shading_vao = -1U; //vertex array object that describes how to connect the meshes_vbo to the simple_shading_program
 
@@ -109,7 +111,9 @@ struct Game {
 		bool golden = false;
 	};
 
-	Target create_target();
+	Target create_target(bool golden);
+
+	int golden_jumps = 0;
 
 	Player player;
 	std::vector< Enemy > enemies;
@@ -119,6 +123,7 @@ struct Game {
 	float power = 0.0f;
 
 	int score = 0;
+	int golden_score = 0;
 
 	struct {
 		bool angle_left = false;
