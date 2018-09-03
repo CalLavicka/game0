@@ -72,25 +72,41 @@ struct Game {
 
 	State game_state = aiming;
 
+	void reset_game();
+
 	struct Player {
 		Mesh mesh = Mesh();
 		glm::vec2 position = glm::vec2(0.0f, 0.0f);
 		glm::vec2 velocity = glm::vec2(0.0f, 0.0f);
-		float radius = 0.5f;
+		float radius = 0.2f;
+	};
+
+	enum EnemyState {
+		chase = 0, flee = 1, patrol = 2, wander = 3, circle = 4, hunt = 5
 	};
 
 	struct Enemy {
 		Mesh mesh = Mesh();
 		glm::vec2 position = glm::vec2(0.0f, 0.0f);
 		float speed = 0.0f;
-		float radius = 0.5f;
+		float radius = 0.2f;
+
+
+		// AI Control: some optional variables
+		float direction = 0.0f;
+		float time_traveled = 0.0f;
+		EnemyState state = chase;
+
+		float state_time = 0.0f;
+		float target_time = 0.0f;
 	};
 
 	struct Target {
 		Mesh mesh = Mesh();
 		glm::vec2 position = glm::vec2(0.0f, 0.0f);
 		int points = 0;
-		float radius = 0.5f;
+		float radius = 0.8f;
+		bool golden = false;
 	};
 
 	Target create_target();

@@ -230,6 +230,16 @@ Game::Game() {
 	//board_rotations.reserve(board_size.x * board_size.y);
 	std::mt19937 mt(0xbead1234);
 
+	reset_game();
+}
+
+void Game::reset_game() {
+
+	score = 0;
+	game_state = aiming;
+	angle = 90.0f;
+	power = 0.0f;
+
 	player = Player();
 	player.mesh = player_mesh;
 	player.position = glm::vec2(0.0f, 0.0f);
@@ -279,8 +289,6 @@ bool Game::handle_event(SDL_Event const &evt, glm::uvec2 window_size) {
 		} else if (evt.key.keysym.scancode == SDL_SCANCODE_SPACE && evt.type == SDL_KEYDOWN && game_state == aiming) {
 			controls.power_up = true;
 			game_state = charging;
-			controls.angle_left = false;
-			controls.angle_right = false;
 			return true;
 		}
 	}
@@ -304,6 +312,9 @@ bool collision(glm::vec2 p1, glm::vec2 p2, float dist) {
 
 void Game::update(float elapsed) {
 	switch(game_state) {
+	case charging:
+		// Add to power
+		power = glm::min(power + 10.0f * elapsed, 10.0f);
 	case aiming:
 		// Update aiming
 		if (controls.angle_left) {
@@ -312,10 +323,6 @@ void Game::update(float elapsed) {
 		if (controls.angle_right) {
 			angle = glm::max(angle - 50.0f * elapsed, 20.0f);
 		}
-		break;
-	case charging:
-		// Add to power
-		power = glm::min(power + 10.0f * elapsed, 10.0f);
 		break;
 	case flying:
 		// Update player
@@ -337,7 +344,7 @@ void Game::update(float elapsed) {
 			if (score > enemies.size() * 100) {
 				Enemy enemy = Enemy();
 				enemy.mesh = enemy_mesh;
-				enemy.position = enemies[0].position;
+				enemy.position = enemies[enemies.size() - 1].position;
 				enemy.speed = 1.0f + enemies.size() * 0.1f;
 				enemies.push_back(enemy);
 			}
@@ -368,9 +375,93 @@ void Game::update(float elapsed) {
 
 	// Update enemies
 	for (Enemy &enemy : enemies) {
-		auto dir = player.position - enemy.position;
-		dir = dir * (enemy.speed / mag(dir));
-		enemy.position += dir * elapsed;
+		glm::vec2 dir;
+		float angle;
+		switch(enemy.state) {
+		case chase:
+			dir = player.position - enemy.position;
+			dir = dir * (enemy.speed / mag(dir));
+			enemy.position += dir * elapsed;
+			break;
+		case flee:
+			dir = enemy.position - player.position;
+			dir = dir * (enemy.speed / mag(dir));
+			enemy.position += dir * elapsed;
+			break;
+		case patrol:
+			angle = enemy.direction * PI / 180.0f;
+			dir = glm::vec2(glm::cos(angle) * enemy.speed * elapsed, glm::sin(angle) * enemy.speed * elapsed);
+			enemy.position += dir;
+
+			enemy.time_traveled += elapsed;
+			if (enemy.time_traveled >= 3.0f) {
+				enemy.time_traveled = 0.0f;
+				enemy.direction = 180.0f + enemy.direction;
+			}
+			break;
+		case wander:
+			angle = enemy.direction * PI / 180.0f;
+			dir = glm::vec2(glm::cos(angle) * enemy.speed * elapsed, glm::sin(angle) * enemy.speed * elapsed);
+			enemy.position += dir;
+
+			enemy.direction += glm::linearRand(-8.0f, 8.0f) * elapsed;
+			break;
+		case circle:
+			angle = enemy.direction * PI / 180.0f;
+			dir = glm::vec2(glm::cos(angle) * enemy.speed * elapsed, glm::sin(angle) * enemy.speed * elapsed);
+			enemy.position += dir;
+
+			enemy.direction += enemy.speed * 60.0f * elapsed;
+			break;
+		case hunt:
+			auto target = player.position + player.velocity * 1.0f;
+			
+			dir = target - enemy.position;
+			dir = dir * (enemy.speed / mag(dir));
+			enemy.position += dir * elapsed;
+			break;
+		}
+
+		// Make sure within bounds
+		enemy.position.x = glm::min(glm::max(enemy.position.x, -5.0f), 5.0f);
+		enemy.position.y = glm::min(glm::max(enemy.position.y, 0.0f), 10.0f);
+
+		// Check for a collision
+		if (collision(enemy.position, player.position, enemy.radius + player.radius)) {
+			reset_game();
+			return;
+		}
+
+		// Change AI (only when player is grounded)
+		enemy.state_time += elapsed;
+		if (enemy.state_time > enemy.target_time && game_state == aiming) {
+			int state_roll = glm::linearRand(0, 10);
+			if (state_roll <= 2) {
+				enemy.state = chase;
+			} else if (state_roll == 3) {
+				enemy.state = flee;
+			} else if (state_roll <= 6) {
+				enemy.state = patrol;
+			} else if (state_roll == 7) {
+				enemy.state = wander;
+			} else if (state_roll == 8) {
+				enemy.state = circle;
+			} else {
+				enemy.state = hunt;
+			}
+			enemy.state_time = 0.0f;
+			enemy.target_time = glm::linearRand(7.0f, 20.0f);
+
+			// Some initialization
+			switch(enemy.state) {
+			case patrol:
+				enemy.time_traveled = 0.0f;
+			case circle:
+			case wander:
+				enemy.direction = glm::linearRand(0.0f, 360.0f);
+				break;
+			}
+		}
 	}
 }
 
@@ -415,6 +506,11 @@ void Game::draw(glm::uvec2 drawable_size) {
 			2.0f * aspect / float(board_size.x),
 			2.0f / float(board_size.y)
 		);*/
+
+		// Make sure 10x10 box is always onscreen
+		if (aspect < 1.0f) {
+			scale = scale * aspect;
+		}
 
 		//center of board will be placed at center of screen:
 		glm::vec2 center = glm::vec2(0.0f, 5.0f);//0.5f * glm::vec2(board_size);
@@ -480,6 +576,8 @@ void Game::draw(glm::uvec2 drawable_size) {
 	if (game_state == charging) {
 		draw_mesh(enemy_mesh, trans_mat(player.position.x, player.position.y, -0.6f) * aimmat * scale_mat(0.5f, power / 2.0f) * trans_mat(0.0f, -0.25f, 0.0f));
 	}
+
+	// TODO: Draw playable surface
 
 	glUseProgram(0);
 
