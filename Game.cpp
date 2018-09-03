@@ -12,6 +12,17 @@
 #include <cstddef>
 #include <random>
 
+#define PI 3.141592f
+
+// Some helpful functions for vectors
+float mag(glm::vec2 vec) {
+	return glm::sqrt(vec.x * vec.x + vec.y * vec.y);
+}
+
+void normalize(glm::vec2 &vec) {
+	vec /= mag(vec);
+}
+
 //helper defined later; throws if shader compilation fails:
 static GLuint compile_shader(GLenum type, std::string const &source);
 
@@ -173,11 +184,11 @@ Game::Game() {
 			}
 			return f->second;
 		};
-		tile_mesh = lookup("Tile");
-		cursor_mesh = lookup("Cursor");
-		doll_mesh = lookup("Doll");
-		egg_mesh = lookup("Egg");
-		cube_mesh = lookup("Cube");
+		//tile_mesh = lookup("Tile");
+		//cursor_mesh = lookup("Cursor");
+		player_mesh = lookup("Doll");
+		target_mesh = lookup("Egg");
+		enemy_mesh = lookup("Cube");
 	}
 
 	{ //create vertex array object to hold the map from the mesh vertex buffer to shader program attributes:
@@ -202,16 +213,21 @@ Game::Game() {
 
 	//----------------
 	//set up game board with meshes and rolls:
-	board_meshes.reserve(board_size.x * board_size.y);
-	board_rotations.reserve(board_size.x * board_size.y);
+	//board_meshes.reserve(board_size.x * board_size.y);
+	//board_rotations.reserve(board_size.x * board_size.y);
 	std::mt19937 mt(0xbead1234);
 
-	std::vector< Mesh const * > meshes{ &doll_mesh, &egg_mesh, &cube_mesh };
+	player = Player();
+	player.mesh = player_mesh;
+	player.position = glm::vec2(0.0f, 0.0f);
+	player.velocity = glm::vec2(5.0f, 5.0f);
 
-	for (uint32_t i = 0; i < board_size.x * board_size.y; ++i) {
-		board_meshes.emplace_back(meshes[mt()%meshes.size()]);
-		board_rotations.emplace_back(glm::quat());
-	}
+	enemies.clear();
+	Enemy enemy = Enemy();
+	enemy.mesh = enemy_mesh;
+	enemy.position = glm::vec2(3.0f, 3.0f);
+	enemy.speed = 1.0f;
+	enemies.push_back(enemy);
 }
 
 Game::~Game() {
@@ -232,77 +248,125 @@ bool Game::handle_event(SDL_Event const &evt, glm::uvec2 window_size) {
 	if (evt.type == SDL_KEYDOWN && evt.key.repeat) {
 		return false;
 	}
-	//handle tracking the state of WSAD for roll control:
+
 	if (evt.type == SDL_KEYDOWN || evt.type == SDL_KEYUP) {
-		if (evt.key.keysym.scancode == SDL_SCANCODE_W) {
-			controls.roll_up = (evt.type == SDL_KEYDOWN);
+		if (evt.key.keysym.scancode == SDL_SCANCODE_LEFT) {
+			controls.angle_left = (evt.type == SDL_KEYDOWN);
 			return true;
-		} else if (evt.key.keysym.scancode == SDL_SCANCODE_S) {
-			controls.roll_down = (evt.type == SDL_KEYDOWN);
+		} else if (evt.key.keysym.scancode == SDL_SCANCODE_RIGHT) {
+			controls.angle_right = (evt.type == SDL_KEYDOWN);
 			return true;
-		} else if (evt.key.keysym.scancode == SDL_SCANCODE_A) {
-			controls.roll_left = (evt.type == SDL_KEYDOWN);
-			return true;
-		} else if (evt.key.keysym.scancode == SDL_SCANCODE_D) {
-			controls.roll_right = (evt.type == SDL_KEYDOWN);
+		} else if (evt.key.keysym.scancode == SDL_SCANCODE_SPACE && evt.type == SDL_KEYDOWN && game_state == aiming) {
+			controls.power_up = true;
+			game_state = charging;
+			controls.angle_left = false;
+			controls.angle_right = false;
 			return true;
 		}
 	}
-	//move cursor on L/R/U/D press:
-	if (evt.type == SDL_KEYDOWN && evt.key.repeat == 0) {
-		if (evt.key.keysym.scancode == SDL_SCANCODE_LEFT) {
-			if (cursor.x > 0) {
-				cursor.x -= 1;
-			}
-			return true;
-		} else if (evt.key.keysym.scancode == SDL_SCANCODE_RIGHT) {
-			if (cursor.x + 1 < board_size.x) {
-				cursor.x += 1;
-			}
-			return true;
-		} else if (evt.key.keysym.scancode == SDL_SCANCODE_UP) {
-			if (cursor.y + 1 < board_size.y) {
-				cursor.y += 1;
-			}
-			return true;
-		} else if (evt.key.keysym.scancode == SDL_SCANCODE_DOWN) {
-			if (cursor.y > 0) {
-				cursor.y -= 1;
-			}
-			return true;
-		}
+
+	if (game_state == charging && evt.key.keysym.scancode == SDL_SCANCODE_SPACE && evt.type == SDL_KEYUP) {
+		controls.power_up = false;
+		game_state = flying;
+		
+		float velx = glm::cos(angle * PI / 180.0f) * power;
+		float vely = glm::sin(angle * PI / 180.0f) * power;
+		player.velocity = glm::vec2(velx, vely);
+		return true;
 	}
 	return false;
 }
 
+bool collision(glm::vec2 p1, glm::vec2 p2, float dist) {
+	auto dif = p1 - p2;
+	return (dif.x * dif.x + dif.y * dif.y) <= dist * dist;
+}
+
 void Game::update(float elapsed) {
-	//if the roll keys are pressed, rotate everything on the same row or column as the cursor:
-	glm::quat dr = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-	float amt = elapsed * 1.0f;
-	if (controls.roll_left) {
-		dr = glm::angleAxis(amt, glm::vec3(0.0f, 1.0f, 0.0f)) * dr;
-	}
-	if (controls.roll_right) {
-		dr = glm::angleAxis(-amt, glm::vec3(0.0f, 1.0f, 0.0f)) * dr;
-	}
-	if (controls.roll_up) {
-		dr = glm::angleAxis(amt, glm::vec3(1.0f, 0.0f, 0.0f)) * dr;
-	}
-	if (controls.roll_down) {
-		dr = glm::angleAxis(-amt, glm::vec3(1.0f, 0.0f, 0.0f)) * dr;
-	}
-	if (dr != glm::quat()) {
-		for (uint32_t x = 0; x < board_size.x; ++x) {
-			glm::quat &r = board_rotations[cursor.y * board_size.x + x];
-			r = glm::normalize(dr * r);
+	switch(game_state) {
+	case aiming:
+		// Update aiming
+		if (controls.angle_left) {
+			angle = glm::min(angle + 50.0f * elapsed, 160.0f);
 		}
-		for (uint32_t y = 0; y < board_size.y; ++y) {
-			if (y != cursor.y) {
-				glm::quat &r = board_rotations[y * board_size.x + cursor.x];
-				r = glm::normalize(dr * r);
-			}
+		if (controls.angle_right) {
+			angle = glm::max(angle - 50.0f * elapsed, 20.0f);
+		}
+		break;
+	case charging:
+		// Add to power
+		power = glm::min(power + 7.0f * elapsed, 10.0f);
+		break;
+	case flying:
+		// Update player
+		player.position += player.velocity * elapsed;
+		player.velocity.y -= elapsed * 4.5f;
+		if (player.position.y <= 0) {
+			player.position.y = 0;
+			game_state = aiming;
+			angle = 90;
+			power = 0;
+			player.velocity = glm::vec2(0.0f, 0.0f);
+		}
+		if (player.position.x >= 5.0f) {
+			player.velocity.x = -glm::abs(player.velocity.x);
+			player.position.x = 5.0f - (player.position.x - 5.0f);
+		} else if (player.position.x <= -5.0f) {
+			player.velocity.x = glm::abs(player.velocity.x);
+			player.position.x = -5.0f - (player.position.x + 5.0f);
+		}
+	default:
+		break;
+	}
+
+	// Check targets
+	for (size_t i = 0; i < targets.size(); i++) {
+		Target target = targets[i];
+		// Check for a collision
+		if (collision(target.position, player.position, target.radius + player.radius)) {
+			// COLLISION
+			score += target.points;
+			targets.erase(i);
+			i--;
 		}
 	}
+
+	// Update enemies
+	for (Enemy &enemy : enemies) {
+		auto dir = player.position - enemy.position;
+		dir = dir * (enemy.speed / mag(dir));
+		enemy.position += dir * elapsed;
+	}
+}
+
+// Some helpers for common matrices
+glm::mat4 rot_mat(float const angle) {
+	float sintheta = glm::sin(angle * PI / 180.0f);
+	float costheta = glm::cos(angle * PI / 180.0f);
+	return glm::mat4(
+		sintheta, costheta, 0.0f, 0.0f,
+		costheta, -sintheta, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		0.0f, 0.0f, 0.0f, 1.0f
+	);
+}
+
+glm::mat4 scale_mat(float const scalex, float const scaley) {
+	return glm::mat4(
+		scalex, 0.0f, 0.0f, 0.0f,
+		0.0f, scaley, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		0.0f, 0.0f, 0.0f, 1.0f
+	);
+}
+
+glm::mat4 trans_mat(float const transx, float const transy, float const transz) {
+	return glm::mat4(
+		1.0f, 0.0f, 0.0f, 0.0f,
+		0.0f, 1.0f, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		transx, transy, transz, 1.0f
+	);
 }
 
 void Game::draw(glm::uvec2 drawable_size) {
@@ -312,13 +376,13 @@ void Game::draw(glm::uvec2 drawable_size) {
 		float aspect = float(drawable_size.x) / float(drawable_size.y);
 
 		//want scale such that board * scale fits in [-aspect,aspect]x[-1.0,1.0] screen box:
-		float scale = glm::min(
+		float scale = 0.2f;/*glm::min(
 			2.0f * aspect / float(board_size.x),
 			2.0f / float(board_size.y)
-		);
+		);*/
 
 		//center of board will be placed at center of screen:
-		glm::vec2 center = 0.5f * glm::vec2(board_size);
+		glm::vec2 center = glm::vec2(0.0f, 5.0f);//0.5f * glm::vec2(board_size);
 
 		//NOTE: glm matrices are specified in column-major order
 		world_to_clip = glm::mat4(
@@ -358,36 +422,21 @@ void Game::draw(glm::uvec2 drawable_size) {
 		glDrawArrays(GL_TRIANGLES, mesh.first, mesh.count);
 	};
 
-	for (uint32_t y = 0; y < board_size.y; ++y) {
-		for (uint32_t x = 0; x < board_size.x; ++x) {
-			draw_mesh(tile_mesh,
-				glm::mat4(
-					1.0f, 0.0f, 0.0f, 0.0f,
-					0.0f, 1.0f, 0.0f, 0.0f,
-					0.0f, 0.0f, 1.0f, 0.0f,
-					x+0.5f, y+0.5f,-0.5f, 1.0f
-				)
-			);
-			draw_mesh(*board_meshes[y*board_size.x+x],
-				glm::mat4(
-					1.0f, 0.0f, 0.0f, 0.0f,
-					0.0f, 1.0f, 0.0f, 0.0f,
-					0.0f, 0.0f, 1.0f, 0.0f,
-					x+0.5f, y+0.5f, 0.0f, 1.0f
-				)
-				* glm::mat4_cast(board_rotations[y*board_size.x+x])
-			);
-		}
-	}
-	draw_mesh(cursor_mesh,
-		glm::mat4(
-			1.0f, 0.0f, 0.0f, 0.0f,
-			0.0f, 1.0f, 0.0f, 0.0f,
-			0.0f, 0.0f, 1.0f, 0.0f,
-			cursor.x+0.5f, cursor.y+0.5f, 0.0f, 1.0f
-		)
-	);
+	draw_mesh(player.mesh, trans_mat(player.position.x, player.position.y, -0.5f));
 
+	for (Enemy enemy : enemies) {
+		draw_mesh(enemy.mesh, trans_mat(enemy.position.x, enemy.position.y, -0.5f));
+	}
+
+	glm::mat4 aimmat = rot_mat(180.0f - angle);
+
+	if (game_state == aiming) {
+		draw_mesh(enemy_mesh, trans_mat(player.position.x, player.position.y, -1.0f) * aimmat * scale_mat(0.5f, 10.0f) * trans_mat(0.0f, -0.25f, 0.0f));
+	}
+
+	if (game_state == charging) {
+		draw_mesh(enemy_mesh, trans_mat(player.position.x, player.position.y, -1.0f) * aimmat * scale_mat(0.5f, power / 2.0f) * trans_mat(0.0f, -0.25f, 0.0f));
+	}
 
 	glUseProgram(0);
 

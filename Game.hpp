@@ -58,27 +58,54 @@ struct Game {
 		GLsizei count = 0;
 	};
 
-	Mesh tile_mesh;
-	Mesh cursor_mesh;
-	Mesh doll_mesh;
-	Mesh egg_mesh;
-	Mesh cube_mesh;
+	Mesh enemy_mesh;
+	Mesh player_mesh;
+	Mesh target_mesh;
 
 	GLuint meshes_for_simple_shading_vao = -1U; //vertex array object that describes how to connect the meshes_vbo to the simple_shading_program
 
 	//------- game state -------
 
-	glm::uvec2 board_size = glm::uvec2(5,4);
-	std::vector< Mesh const * > board_meshes;
-	std::vector< glm::quat > board_rotations;
+	enum State {
+		aiming = 0, charging = 1, flying = 2, dead = 3
+	};
 
-	glm::uvec2 cursor = glm::vec2(0,0);
+	State game_state = aiming;
+
+	struct Player {
+		Mesh mesh = Mesh();
+		glm::vec2 position = glm::vec2(0.0f, 0.0f);
+		glm::vec2 velocity = glm::vec2(0.0f, 0.0f);
+		float radius = 0.5f;
+	};
+
+	struct Enemy {
+		Mesh mesh = Mesh();
+		glm::vec2 position = glm::vec2(0.0f, 0.0f);
+		float speed = 0.0f;
+		float radius = 0.5f;
+	};
+
+	struct Target {
+		Mesh mesh = Mesh();
+		glm::vec2 position = glm::vec2(0.0f, 0.0f);
+		int points = 0;
+		float radius = 0.5f;
+	};
+
+	Player player;
+	std::vector< Enemy > enemies;
+	std::vector< Target > targets;
+
+	float angle = 90.0f;
+	float power = 0.0f;
+
+	int score = 0;
 
 	struct {
-		bool roll_left = false;
-		bool roll_right = false;
-		bool roll_up = false;
-		bool roll_down = false;
+		bool angle_left = false;
+		bool angle_right = false;
+		bool power_up = false;
 	} controls;
 
 };
