@@ -113,17 +113,22 @@ struct Game {
 
 	Target create_target(bool golden);
 
-	int golden_jumps = 0;
+	bool golden_active = false;
+	float golden_time = 0.0f;
 
 	Player player;
 	std::vector< Enemy > enemies;
 	std::vector< Target > targets;
+	uint32_t enemies_spawned = 0;
 
 	float angle = 90.0f;
 	float power = 0.0f;
 
 	int score = 0;
 	int golden_score = 0;
+
+	uint32_t eggs = 0;
+	uint32_t golden_eggs = 0;
 
 	struct {
 		bool angle_left = false;

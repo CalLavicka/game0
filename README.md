@@ -1,11 +1,10 @@
 # Game Information
-(Note: fill in this portion with information about your game.)
 
-Title: (TODO: your game's title)
+Title: Egg Hoarder
 
-Author: (TODO: your name)
+Author: Cal Lavicka
 
-Design Document: [TODO: name of design document](TODO: link to design document)
+Design Document: Jump-duck(http://graphics.cs.cmu.edu/courses/15-466-f18/game0-designs/clavicka/)
 
 Screen Shot:
 
@@ -13,11 +12,15 @@ Screen Shot:
 
 Difficulties Encountered:
 
-TODO: write several sentences about any difficulties you may have encountered in creating the game.
+The biggest difficulty encountered was making the enemies interesting to avoid. I initially wanted most of the enemies to just charge after you, but this led to boring and repetitive gameplay. So, what I did instead was have differing AI states which
+had different behaviors, and separated them into different categories with colors to tell the player which state an enemy was in. The three categories are aggression (red), patrol (green), and mindless (pink).
+
+Another challenge was the difficulty of the game. I ended up increasing the size of the eggs and reducing the hitbox size of enemies to allow for more leniency, and silently increase the hitboxes when a golden egg is collected to make it more fun.
 
 Good Code:
 
-TODO: write a sentence or two about any code you think you did particularly well.
+I think an enum for the overall game_state was wise, as it allowed for faster code as I clearly separated when the user was aiming, charging, and flying through the air. This made for instance rendering the indicators easier, as I could only
+render them when it is that state of the game.I used a similar tactic for enemy AI.
 
 # Using This Base Code
 

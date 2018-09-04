@@ -12,6 +12,7 @@
 #include <map>
 #include <cstddef>
 #include <random>
+#include <cmath>
 
 #define PI 3.141592f
 
@@ -246,6 +247,9 @@ void Game::reset_game() {
 	angle = 90.0f;
 	power = 0.0f;
 
+	golden_active = false;
+	golden_time = 0.0f;
+
 	player = Player();
 	player.mesh = player_mesh;
 	player.position = glm::vec2(0.0f, 0.0f);
@@ -256,7 +260,12 @@ void Game::reset_game() {
 	enemy.mesh = enemy_mesh;
 	enemy.position = glm::vec2(3.0f, 3.0f);
 	enemy.speed = 1.0f;
+	enemy.direction = glm::linearRand(0.0f, 360.0f);
 	enemies.push_back(enemy);
+	enemies_spawned = 1;
+
+	eggs = 0;
+	golden_eggs = 0;
 
 	targets.clear();
 	for (int i=0; i<NUM_TARGETS; i++) {
@@ -328,6 +337,9 @@ void Game::update(float elapsed) {
 		if (controls.angle_right) {
 			angle = glm::max(angle - 50.0f * elapsed, 20.0f);
 		}
+
+		// Update golden
+		golden_active = golden_time > 0.0f;
 		break;
 	case flying:
 		// Update player
@@ -339,7 +351,6 @@ void Game::update(float elapsed) {
 			angle = 90;
 			power = 0;
 			player.velocity = glm::vec2(0.0f, 0.0f);
-			golden_jumps = glm::max(golden_jumps - 1, 0);
 
 			while (targets.size() < NUM_TARGETS) {
 				Target target;
@@ -352,7 +363,7 @@ void Game::update(float elapsed) {
 				targets.push_back(target);
 			}
 
-			if (score > enemies.size() * 100) {
+			if (score > enemies_spawned * 100) {
 				Enemy enemy = Enemy();
 				enemy.mesh = enemy_mesh;
 				if (enemies.size() > 0) {
@@ -360,8 +371,10 @@ void Game::update(float elapsed) {
 				} else {
 					enemy.position = glm::vec2(-5.0f, 10.0f);
 				}
-				enemy.speed = 1.0f + score * 0.0005f;
+				enemy.speed = 1.0f + enemies_spawned * 0.05f;
+				enemy.direction = glm::linearRand(0.0f, 360.0f);
 				enemies.push_back(enemy);
+				enemies_spawned++;
 			}
 		}
 		if (player.position.x >= 5.0f) {
@@ -375,6 +388,8 @@ void Game::update(float elapsed) {
 		break;
 	}
 
+	golden_time = glm::max(0.0f, golden_time - elapsed);
+
 	// Check targets
 	for (size_t i = 0; i < targets.size(); i++) {
 		Target target = targets[i];
@@ -386,7 +401,11 @@ void Game::update(float elapsed) {
 			i--;
 
 			if (target.golden) {
-				golden_jumps += 4;
+				golden_active = true;
+				golden_time += 7.5f;
+				golden_eggs++;
+			} else {
+				eggs++;
 			}
 		}
 	}
@@ -397,25 +416,49 @@ void Game::update(float elapsed) {
 		float angle;
 
 		Enemy &enemy = enemies[i];
-		if (golden_jumps > 0) {
+		if (golden_active) {
+			// Start fleeing, but switch states once golden runs out
 			enemy.state = flee;
+			enemy.target_time = 0.0f;
 		}
+
+		// Update enemy based on position
+		angle = enemy.direction * PI / 180.0f;
+		dir = glm::vec2(glm::cos(angle) * enemy.speed * elapsed, glm::sin(angle) * enemy.speed * elapsed);
+		enemy.position += dir;
+
 		switch(enemy.state) {
 		case chase:
+			// Update direction to player
 			dir = player.position - enemy.position;
-			dir = dir * (enemy.speed / mag(dir));
-			enemy.position += dir * elapsed;
+			angle = atan2(dir.y, dir.x) * 180.0f / PI;
+			angle = fmod(enemy.direction - angle, 360.0f);
+			if (angle < 0.0f) {
+				angle += 360.0f;
+			}
+			if (angle < 180.0f) {
+				enemy.direction += glm::linearRand(-80.0f, -60.0f) * elapsed;
+			} else {
+				enemy.direction += glm::linearRand(60.0f, 80.0f) * elapsed;
+			}
+
 			break;
 		case flee:
+			// Update direction away from player
 			dir = enemy.position - player.position;
-			dir = dir * (enemy.speed / mag(dir));
-			enemy.position += dir * elapsed;
+			angle = atan2(dir.y, dir.x) * 180.0f / PI;
+			angle = fmod(enemy.direction - angle, 360.0f);
+			if (angle < 0.0f) {
+				angle += 360.0f;
+			}
+			if (angle < 180.0f) {
+				enemy.direction += glm::linearRand(-80.0f, -60.0f) * elapsed;
+			} else {
+				enemy.direction += glm::linearRand(60.0f, 80.0f) * elapsed;
+			}
 			break;
 		case patrol:
-			angle = enemy.direction * PI / 180.0f;
-			dir = glm::vec2(glm::cos(angle) * enemy.speed * elapsed, glm::sin(angle) * enemy.speed * elapsed);
-			enemy.position += dir;
-
+			// Swap direction periodically
 			enemy.time_traveled += elapsed;
 			if (enemy.time_traveled >= 3.0f) {
 				enemy.time_traveled = 0.0f;
@@ -423,35 +466,50 @@ void Game::update(float elapsed) {
 			}
 			break;
 		case wander:
-			angle = enemy.direction * PI / 180.0f;
-			dir = glm::vec2(glm::cos(angle) * enemy.speed * elapsed, glm::sin(angle) * enemy.speed * elapsed);
-			enemy.position += dir;
+			// Pick direction somewhat randomly, weighted towards center
+			dir = glm::vec2(0.0f, 5.0f) - enemy.position;
+			angle = atan2(dir.y, dir.x) * 180.0f / PI;
 
-			enemy.direction += glm::linearRand(-40.0f, 40.0f) * elapsed;
+			// Get difference 
+			angle = fmod(enemy.direction - angle, 360.0f);
+			if (angle < 0.0f) {
+				angle += 360.0f;
+			}
+			if (angle < 180.0f) {
+				enemy.direction += glm::linearRand(-60.0f, 20.0f) * elapsed;
+			} else {
+				enemy.direction += glm::linearRand(-20.0f, 60.0f) * elapsed;
+			}
 			break;
 		case circle:
-			angle = enemy.direction * PI / 180.0f;
-			dir = glm::vec2(glm::cos(angle) * enemy.speed * elapsed, glm::sin(angle) * enemy.speed * elapsed);
-			enemy.position += dir;
-
-			enemy.direction += enemy.speed * 60.0f * elapsed;
+			// Go in circle
+			enemy.direction += 60.0f * elapsed;
 			break;
 		case hunt:
+			// Grab target ahead of player
 			auto target = player.position + player.velocity * 1.0f;
 			
 			dir = target - enemy.position;
-			dir = dir * (enemy.speed / mag(dir));
-			enemy.position += dir * elapsed;
+			angle = atan2(dir.y, dir.x) * 180.0f / PI;
+			angle = fmod(enemy.direction - angle, 360.0f);
+			if (angle < 0.0f) {
+				angle += 360.0f;
+			}
+			if (angle < 180.0f) {
+				enemy.direction += glm::linearRand(-80.0f, -60.0f) * elapsed;
+			} else {
+				enemy.direction += glm::linearRand(60.0f, 80.0f) * elapsed;
+			}
 			break;
 		}
 
 		// Make sure within bounds
-		enemy.position.x = glm::min(glm::max(enemy.position.x, -5.0f), 5.0f);
-		enemy.position.y = glm::min(glm::max(enemy.position.y, 0.0f), 10.0f);
+		enemy.position.x = glm::min(glm::max(enemy.position.x, -4.8f), 4.8f);
+		enemy.position.y = glm::min(glm::max(enemy.position.y, 0.3f), 9.5f);
 
 		// Check for a collision
-		if (collision(enemy.position, player.position, enemy.radius + player.radius + (golden_jumps > 0) ? 0.5f : 0.0f)) {
-			if (golden_jumps > 0) {
+		if (collision(enemy.position, player.position, enemy.radius + player.radius + (golden_active ? 0.5f : 0.0f))) {
+			if (golden_active) {
 				enemies.erase(enemies.begin() + i);
 				i--;
 				continue;
@@ -463,17 +521,17 @@ void Game::update(float elapsed) {
 
 		// Change AI (only when player is grounded)
 		enemy.state_time += elapsed;
-		if (enemy.state_time > enemy.target_time && game_state == aiming && golden_jumps == 0) {
-			int state_roll = glm::linearRand(0, 9);
+		if (enemy.state_time > enemy.target_time && game_state != flying && !golden_active) {
+			int state_roll = glm::linearRand(0, 10);
 			if (state_roll <= 2) {
 				enemy.state = chase;
 			} else if (state_roll == 3) {
 				enemy.state = flee;
 			} else if (state_roll <= 6) {
 				enemy.state = patrol;
-			} else if (state_roll == 7) {
+			} else if (state_roll <= 8) {
 				enemy.state = wander;
-			} else if (state_roll == 8) {
+			} else if (state_roll == 9) {
 				enemy.state = circle;
 			} else {
 				enemy.state = hunt;
@@ -488,6 +546,8 @@ void Game::update(float elapsed) {
 			case circle:
 			case wander:
 				enemy.direction = glm::linearRand(0.0f, 360.0f);
+				break;
+			default:
 				break;
 			}
 		}
@@ -553,10 +613,11 @@ glm::mat4 face4 = glm::mat4(
 );
 
 void Game::draw(glm::uvec2 drawable_size) {
+	float aspect = float(drawable_size.x) / float(drawable_size.y);
+
 	//Set up a transformation matrix to fit the board in the window:
 	glm::mat4 world_to_clip;
 	{
-		float aspect = float(drawable_size.x) / float(drawable_size.y);
 
 		//want scale such that board * scale fits in [-aspect,aspect]x[-1.0,1.0] screen box:
 		float scale = 0.2f;/*glm::min(
@@ -570,7 +631,11 @@ void Game::draw(glm::uvec2 drawable_size) {
 		}
 
 		//center of board will be placed at center of screen:
-		glm::vec2 center = glm::vec2(0.0f, 5.0f);//0.5f * glm::vec2(board_size);
+		float centerY = 5.0f;
+		if (aspect < 1.0f) {
+			centerY = 10.0f - (5.0f / aspect);
+		}
+		glm::vec2 center = glm::vec2(0.0f, centerY);//0.5f * glm::vec2(board_size);
 
 		//NOTE: glm matrices are specified in column-major order
 		world_to_clip = glm::mat4(
@@ -615,7 +680,7 @@ void Game::draw(glm::uvec2 drawable_size) {
 	// Draw enemies
 	for (Enemy enemy : enemies) {
 		auto mat = trans_mat(enemy.position.x, enemy.position.y, -0.5f);
-		if (golden_jumps > 0) {
+		if (golden_active) {
 			mat = mat * face2;
 		} else {
 			switch(enemy.state) {
@@ -640,7 +705,7 @@ void Game::draw(glm::uvec2 drawable_size) {
 	for (Target target : targets) {
 
 		//std::cout << "Drawing" << target.position.x << target.position.y << std::endl;
-		draw_mesh(target.mesh, trans_mat(target.position.x, target.position.y, -0.7f));
+		draw_mesh(target.mesh, trans_mat(target.position.x, target.position.y, -0.7f) * scale_mat(2.0f, 2.0f));
 	}
 
 	glm::mat4 aimmat = rot_mat(180.0f - angle);
@@ -653,7 +718,96 @@ void Game::draw(glm::uvec2 drawable_size) {
 		draw_mesh(cursor_mesh, trans_mat(player.position.x, player.position.y, -1.5f) * aimmat * scale_mat(0.1f, power / 6.0f) * trans_mat(0.0f, -1.0f, 0.0f) * face1);
 	}
 
-	// TODO: Draw playable surface
+	
+	{ // Draw eggs gathered
+		uint32_t egg5 = eggs / 5;
+		uint32_t egg1 = eggs % 5;
+		uint32_t gegg5 = golden_eggs / 5;
+		uint32_t gegg1 = golden_eggs % 5;
+
+		float minX;
+		float maxX;
+		float ypos;
+
+		if (aspect > 1.0f) {
+			float extra = (aspect - 1.0f) * 5.0f;
+			if (extra < 1.0f) {
+				// Can't really render on screen, render off screen
+				minX = -1000.0f;
+			} else {
+				minX = -(4.6f + extra);
+			}
+			maxX = -5.3f;
+			ypos = 9.0f;
+		} else {
+			minX = -4.6f;
+			maxX = 5.0f;
+			ypos = -1.2f;
+		}
+		float xpos = minX;
+
+		while(egg5 > 0) {
+
+			if (xpos >= maxX - 0.4f) {
+				xpos = minX;
+				ypos -= 1.0f;
+			}
+
+			// Draw egg
+			draw_mesh(target_mesh, trans_mat(xpos, ypos, -1.0f) * scale_mat(1.5f, 1.5f));
+
+			xpos += 0.8f;
+			egg5--;
+		}
+
+		while(egg1 > 0) {
+			if (xpos >= maxX - 0.25f) {
+				xpos = minX;
+				ypos -= 1.0f;
+			}
+
+			// Draw egg
+			draw_mesh(target_mesh, trans_mat(xpos, ypos, -1.0f) * scale_mat(0.75f, 0.75f));
+
+			xpos += 0.5f;
+			egg1--;
+		}
+
+		while(gegg5 > 0) {
+
+			if (xpos >= maxX - 0.4f) {
+				xpos = minX;
+				ypos -= 1.0f;
+			}
+
+			// Draw egg
+			draw_mesh(golden_egg_mesh, trans_mat(xpos, ypos, -1.0f) * scale_mat(1.5f, 1.5f));
+
+			xpos += 0.8f;
+			gegg5--;
+		}
+
+		while(gegg1 > 0) {
+			if (xpos >= maxX - 0.25f) {
+				xpos = minX;
+				ypos -= 1.0f;
+			}
+
+			// Draw egg
+			draw_mesh(golden_egg_mesh, trans_mat(xpos, ypos, -1.0f) * scale_mat(0.75f, 0.75f));
+
+			xpos += 0.5f;
+			gegg1--;
+		}
+	}
+	
+
+	// Draw walls
+	draw_mesh(enemy_mesh, trans_mat(-5.3f, 5.0f, 0.0f) * scale_mat(1.0f, 100.0f));
+	draw_mesh(enemy_mesh, trans_mat(5.3f, 5.0f, 0.0f) * scale_mat(1.0f, 100.0f));
+
+	// Draw floor
+	draw_mesh(enemy_mesh, trans_mat(0.0f, -0.3f, 0.0f) * scale_mat(100.0f, 1.0f));
 
 	glUseProgram(0);
 
