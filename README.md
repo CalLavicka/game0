@@ -2,6 +2,8 @@
 
 Title: Egg Hoarder
 
+Jump with the spacebar and aim with the arrow keys to collect eggs while avoiding enemies. More enemies spawn as more eggs are collected. Collect the golden egg to eat the enemies!
+
 Author: Cal Lavicka
 
 Design Document: Jump-duck(http://graphics.cs.cmu.edu/courses/15-466-f18/game0-designs/clavicka/)
@@ -16,6 +18,8 @@ The biggest difficulty encountered was making the enemies interesting to avoid. 
 had different behaviors, and separated them into different categories with colors to tell the player which state an enemy was in. The three categories are aggression (red), patrol (green), and mindless (pink).
 
 Another challenge was the difficulty of the game. I ended up increasing the size of the eggs and reducing the hitbox size of enemies to allow for more leniency, and silently increase the hitboxes when a golden egg is collected to make it more fun.
+
+Finally, because the limitation of using vertex colors, I had to change the assets from the initial design document. I ended up using the assets provided with base0, with some color adjustments.
 
 Good Code:
 
