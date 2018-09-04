@@ -19,7 +19,8 @@ had different behaviors, and separated them into different categories with color
 
 Another challenge was the difficulty of the game. I ended up increasing the size of the eggs and reducing the hitbox size of enemies to allow for more leniency, and silently increase the hitboxes when a golden egg is collected to make it more fun.
 
-Finally, because the limitation of using vertex colors, I had to change the assets from the initial design document. I ended up using the assets provided with base0, with some color adjustments.
+Finally, because the limitation of using vertex colors, I had to change the assets from the initial design document. I left the asset creation to the end and instead focussed on coding, and as such I ended up using the assets provided with base0
+for simplicity, with some color adjustments. Given more time, I would create custom assets in blender that better displayed what was what.
 
 Good Code:
 
